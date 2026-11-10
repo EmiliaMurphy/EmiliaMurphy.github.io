@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Interactive choropleth maps of renminbi (RMB) infrastructure across pricing, financing, risk transfer, payment and reinvestment.">
+  <title>RMB Infrastructure Tracker</title>
+
+  <!-- Presentation: all styles live here; behaviour is in tracker.js, map outlines in geo-data.js -->
+  <style>
+    /* Colour tokens. Light theme by default; dark values are applied automatically (OS setting)
+       or by setting data-theme="dark" on <html>. --lo/--hi are the choropleth ramp endpoints. */
+    :root{--bg:#FFFFFF ;--surface:#fff;--text:#1c1b19;--muted:#6b675f;--line:#d9d4c8;--land:#FFFFFF ;--ocean:#D8DCDB;--bord:#3a362f;--accent:#183028;--lo: #76A190;--hi:#28463D;--banner:#004E38 ;--bannertext:#fff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+    @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141311;--surface:#1e1d1a;--text:#efece4;--muted:#a09b90;--line:#35332e;--land:#2e2c27;--ocean:#D8DCDB;--bord:#0a0908;--accent:#183028;--lo:#28463D;--hi:#76A190;--banner:#3a0b08}}
+    :root[data-theme="dark"]{--bg:#141311;--surface:#1e1d1a;--text:#efece4;--muted:#a09b90;--line:#35332e;--land:#2e2c27;--ocean:#D8DCDB;--bord:#0a0908;--accent:#183028 ;--lo:#28463D;--hi:#76A190;--banner:#3a0b08}
+/* Base page */
+    html{scroll-padding-top:env(safe-area-inset-top,0px)}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+    body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--banner);z-index:10}
+    /* Banner */
+    .banner{background:var(--banner);color:var(--bannertext);padding:28px 16px 24px}
+    .banner>div{max-width:1500px;margin:0 auto}
+    .banner h1{font:600 28px/1.15 Georgia,serif;margin:0}
+    .banner p{margin:4px 0 0;opacity:.8;font-size:13px;letter-spacing:.08em;text-transform:uppercase}
+    /* Page layout and description */
+    .wrap{max-width:1500px;margin:0 auto;padding:18px 16px 40px}
+    .desc{color:var(--muted);margin:0 0 16px}
+    /* Map window: tab bar, map, sidebar, legend, timeline */
+    .window{background:var(--surface);border:1px solid var(--bord);border-radius:8px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.12)}
+    .wtabs{display:flex;background:var(--bg);border-bottom:1px solid var(--bord);overflow-x:auto}
+    .wtabs button{flex:1 0 auto;border:0;border-right:1px solid var(--line);border-radius:0;background:transparent;color:var(--muted);padding:12px 18px;font:inherit;cursor:pointer;white-space:nowrap;border-bottom:3px solid transparent}
+    .wtabs button.on{background:var(--surface);color:var(--text);font-weight:600;border-bottom-color:var(--accent);margin-bottom:-1px}
+    .mapwrap{position:relative}
+    #map{width:100%;aspect-ratio:2/1;background:var(--ocean);position:relative}
+    #map svg{display:block;width:100%;height:100%}
+    #map path{stroke:var(--bord);stroke-width:.8;vector-effect:non-scaling-stroke}
+    #map path:hover{stroke:var(--accent);stroke-width:2}
+    .body{position:relative}
+    /* Semi-transparent instrument checkbox panel (bottom-left of the map) */
+    .side{margin:0;min-width:0;position:absolute;z-index:2;bottom:10px;left:10px;width:auto;padding:8px 12px;border-radius:6px;background:rgba(80,82,86,.55);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,.2);color:#fff}
+    .side legend{float:left;width:100%;padding:0;margin:0 0 4px;font:600 10px/1 system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.75)}
+    .side #chips{clear:both}
+    .side label{display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;font-size:12px;line-height:1.3;color:#fff}
+    .side input{width:12px;height:12px;accent-color:var(--accent);margin:0}
+    .mapwrap{flex:1;min-width:0}
+    @media(max-width:560px){.side{padding:6px 10px}}
+    .legend{position:absolute;right:10px;bottom:10px;background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:4px 8px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+    .bar{width:80px;height:8px;background:linear-gradient(90deg,var(--lo),var(--hi))}
+    .nodata{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+    .nodata span{background:var(--surface);border:1px dashed var(--muted);padding:8px 14px;border-radius:6px;color:var(--muted);font-size:13px}
+    .timeline{display:flex;align-items:center;gap:12px;padding:10px 14px;border-top:1px solid var(--bord);background:var(--bg)}
+    .timeline button{border:1px solid var(--bord);background:var(--surface);color:var(--text);border-radius:4px;padding:3px 10px;cursor:pointer;font:inherit}
+    .timeline input{flex:1;accent-color:var(--accent)}
+    output{min-width:96px;font-weight:600;text-align:right;font-size:14px}
+    /* Stats cards and data table */
+    .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:16px 0}
+    .stat{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 14px}
+    .stat b{display:block;font-size:22px;font-family:Georgia,serif}.stat span{color:var(--muted);font-size:12px}
+    .scroll{overflow-x:auto}
+    table{border-collapse:collapse;width:100%;font-size:14px;background:var(--surface);border:1px solid var(--line)}
+    th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+    th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+    /* Hover tooltip */
+    #tipbox{position:fixed;pointer-events:none;display:none;z-index:9;max-width:320px}
+    .tip{background:var(--surface);color:var(--text);border:1px solid var(--bord);border-radius:6px;padding:8px 10px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+    .tip div{margin-top:3px}
+    @media(max-width:560px){.stat b{font-size:18px}.banner h1{font-size:22px}}
+    /* Utilities: screen-reader-only text and keyboard focus ring */
+    .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+    caption{text-align:left}
+    button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  </style>
+</head>
+<body>
+  <!-- Page banner -->
+  <header class="banner">
+    <div>
+      <h1>RMB Infrastructure Tracker</h1>
+      <p>Team 4</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <p class="desc">[insert description here]</p>
+
+    <!-- Map window -->
+    <section class="window" aria-label="RMB infrastructure map">
+      <!-- Stage tabs (Pricing, Financing, ...) are generated by tracker.js -->
+      <div class="wtabs" id="tabs" role="tablist" aria-label="Stages of the RMB system"></div>
+
+      <div class="body" id="panel" role="tabpanel">
+        <!-- Instrument checkboxes (generated by tracker.js for the selected stage) -->
+        <fieldset class="side">
+          <legend>Show</legend>
+          <div id="chips"></div>
+        </fieldset>
+
+        <div class="mapwrap">
+          <!-- Country shapes (SVG) are inserted here by tracker.js from geo-data.js -->
+          <div id="map" role="img" aria-label="World map shaded by number of entries per country. Full data is in the table below."></div>
+          <div class="nodata" id="nodata"></div>
+          <div class="legend" aria-hidden="true"><span>1</span><div class="bar"></div><span id="legend-max">max</span></div>
+          <div id="tipbox" aria-hidden="true"></div>
+        </div>
+      </div>
+
+      <!-- Timeline: shows entries issued up to the selected month -->
+      <div class="timeline">
+        <button type="button" id="play">▶ Play</button>
+        <label for="slider" class="sr-only">Show entries through month</label>
+        <input type="range" id="slider" min="0" max="0" value="0">
+        <output id="tl" for="slider" aria-live="polite"></output>
+      </div>
+    </section>
+
+    <!-- Summary stats -->
+    <section class="stats" aria-label="Summary">
+      <div class="stat"><b id="stat-entries">0</b><span>Entries shown</span></div>
+      <div class="stat"><b id="stat-countries">0</b><span>Countries</span></div>
+      <div class="stat"><b id="stat-usd">0</b><span>Disclosed USD value</span></div>
+    </section>
+
+    <!-- Data table (text alternative to the map) -->
+    <section class="scroll" aria-label="Data table">
+      <table id="tbl"></table>
+    </section>
+  </main>
+
+  <!-- Scripts: deferred so the page paints first; geo-data.js must load before tracker.js -->
+  <script src="geo-data.js" defer></script>
+  <script src="tracker.js" defer></script>
+</body>
+</html>
